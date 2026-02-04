@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yt-Dlp Web GUI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="/public/favicon.svg" />
+</head>
+
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Slice Downloader</h1>
+            <P>POWERED BY MOHAMED HAMDY</P>
+
+            <div class="form-group">
+                <label for="urlInput">Video URL</label>
+                <div class="row">
+                    <input type="text" id="urlInput" placeholder="https://www.faceBook.com/watch?v=...">
+                    <button class="btn btn-secondary" id="checkFormatsBtn" style="width: auto;">Check Formats</button>
+                </div>
+            </div>
+
+            <div id="formatSection" class="hidden">
+                <div class="form-group">
+                    <label for="formatSelect">Select Format</label>
+                    <select id="formatSelect"></select>
+                </div>
+
+                <div class="form-group">
+                    <label>Time Range (Optional)</label>
+                    <div class="row">
+                        <input type="text" id="startTime" placeholder="Start (mm:ss)" class="col">
+                        <input type="text" id="endTime" placeholder="End (mm:ss)" class="col">
+                    </div>
+                </div>
+
+                <button class="btn" id="downloadBtn">
+                    <span id="btnText">Download Video</span>
+                    <span id="loader" class="loader hidden"></span>
+                </button>
+            </div>
+
+            <div id="statusMessage" class="status-message"></div>
+        </div>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('urlInput');
+        const checkFormatsBtn = document.getElementById('checkFormatsBtn');
+        const formatSection = document.getElementById('formatSection');
+        const formatSelect = document.getElementById('formatSelect');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusMessage = document.getElementById('statusMessage');
+        const loader = document.getElementById('loader');
+        const btnText = document.getElementById('btnText');
+        const startTimeField = document.getElementById('startTime');
+        const endTimeField = document.getElementById('endTime');
+
+        // Element for displaying duration
+        const durationDisplay = document.createElement('div');
+        durationDisplay.style.textAlign = 'center';
+        durationDisplay.style.marginBottom = '15px';
+        durationDisplay.style.color = '#10b981';
+        durationDisplay.style.fontWeight = 'bold';
+        durationDisplay.style.display = 'none';
+
+        // Find the "Powered By" paragraph and insert duration after it
+        const poweredByText = Array.from(document.querySelectorAll('p')).find(p => p.textContent.includes('POWERED BY'));
+        if (poweredByText) {
+            poweredByText.after(durationDisplay);
+        } else {
+            document.querySelector('h1').after(durationDisplay);
+        }
+
+        let currentVideoDuration = 0; // In seconds
+
+        function showMessage(msg, type) {
+            statusMessage.textContent = msg;
+            statusMessage.className = `status-message ${type}`;
+        }
+
+        // Helper: Convert "mm:ss" or "hh:mm:ss" to total seconds
+        function timeToSeconds(timeStr) {
+            if (!timeStr) return 0;
+            const parts = timeStr.trim().split(':').reverse();
+            let seconds = 0;
+            if (parts[0]) seconds += parseInt(parts[0], 10);
+            if (parts[1]) seconds += parseInt(parts[1], 10) * 60;
+            if (parts[2]) seconds += parseInt(parts[2], 10) * 3600;
+            return seconds;
+        }
+
+        checkFormatsBtn.addEventListener('click', async () => {
+            const url = urlInput.value.trim();
+            if (!url) {
+                showMessage("Please enter a URL first.", "error");
+                return;
+            }
+
+            checkFormatsBtn.disabled = true;
+            checkFormatsBtn.textContent = "Checking...";
+            formatSection.classList.add('hidden');
+            statusMessage.className = 'status-message';
+            statusMessage.textContent = ''; // Clear previous messages
+            durationDisplay.style.display = 'none'; // Hide duration when checking new formats
+
+            try {
+                const response = await fetch('/formats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to fetch formats');
+                }
+
+                const data = await response.json();
+
+                // Store duration
+                currentVideoDuration = data.duration || 0;
+                if (data.duration_string) {
+                    durationDisplay.textContent = `Video Duration: ${data.duration_string}`;
+                    durationDisplay.style.display = 'block';
+                }
+
+                // Populate dropdown
+                formatSelect.innerHTML = '';
+                data.formats.forEach(fmt => {
+                    const option = document.createElement('option');
+                    option.value = fmt.id;
+                    option.textContent = fmt.display;
+                    formatSelect.appendChild(option);
+                });
+
+                formatSection.classList.remove('hidden');
+                showMessage(`Found formats for: ${data.title}`, "success");
+
+            } catch (err) {
+                showMessage(err.message, "error");
+            } finally {
+                checkFormatsBtn.disabled = false;
+                checkFormatsBtn.textContent = "Check Formats";
+            }
+        });
+
+        // --- Input Mask & Validation Logic ---
+        function handleTimeInput(e) {
+            const input = e.target;
+            let val = input.value;
+            const key = e.inputType; // insertText, distinct from keydown
+
+            // Remove any non-digit or non-colon characters
+            val = val.replace(/[^0-9:]/g, '');
+
+            // Logic 1: Auto-colon for videos < 1 hour (and if not already present)
+            // Only if adding text, not deleting, and current value is 2 digits
+            if (currentVideoDuration < 3600 && val.length === 2 && key !== 'deleteContentBackward' && !val.includes(':')) {
+                val = val + ':';
+            }
+            input.value = val;
+
+            // Logic 2: Validation (Seconds > 59)
+            validateTimeInput(input);
+        }
+
+        function validateTimeInput(input) {
+            const val = input.value;
+            input.style.borderColor = ""; // Reset to default (CSS handles it)
+            input.setCustomValidity(""); // Clear previous custom validity
+
+            if (!val) return;
+
+            const parts = val.split(':');
+
+            // Check the LAST part (seconds usually)
+            if (parts.length > 1) {
+                const seconds = parseInt(parts[parts.length - 1], 10);
+                if (isNaN(seconds) || seconds > 59) {
+                    input.style.borderColor = "red";
+                    input.setCustomValidity("Seconds cannot exceed 59");
+                    input.reportValidity();
+                } else {
+                    input.style.borderColor = "#10b981"; // Green for good
+                }
+            } else if (parts.length === 1 && val.length > 2 && currentVideoDuration < 3600) {
+                // If it's just digits and longer than 2, and video is short, suggest colon
+                // This is a soft validation, not an error
+                input.style.borderColor = "orange";
+            }
+        }
+
+        startTimeField.addEventListener('input', handleTimeInput);
+        endTimeField.addEventListener('input', handleTimeInput);
+
+
+        downloadBtn.addEventListener('click', async () => {
+            const url = urlInput.value.trim();
+            const format_id = formatSelect.value;
+            const start_time = startTimeField.value.trim();
+            const end_time = endTimeField.value.trim();
+
+            if (!url) {
+                showMessage("Please enter a URL first.", "error");
+                return;
+            }
+
+            // Perform client-side validation before sending
+            const validSyntax = startTimeField.checkValidity() && endTimeField.checkValidity();
+            if (!validSyntax) {
+                showMessage("Please correct the time input errors.", "error");
+                return;
+            }
+
+            // check logical validity (End > Start)
+            const startSec = timeToSeconds(start_time);
+            const endSec = timeToSeconds(end_time);
+
+            if (start_time && end_time) {
+                if (endSec <= startSec) {
+                    showMessage("End time must be greater than Start time.", "error");
+                    return;
+                }
+            }
+
+            // Check if end time exceeds video duration
+            if (end_time && currentVideoDuration > 0) {
+                if (endSec > currentVideoDuration+1) {
+                    showMessage(`End time (${end_time}) exceeds video duration (${Math.floor(currentVideoDuration / 60)}:${String(Math.floor(currentVideoDuration % 60)).padStart(2, '0')}).`, "error");
+                    return;
+                }
+            }
+
+            // Check if start time exceeds video duration
+            if (start_time && currentVideoDuration > 0) {
+                if (startSec > currentVideoDuration) {
+                    showMessage(`Start time (${start_time}) exceeds video duration.`, "error");
+                    return;
+                }
+            }
+
+            downloadBtn.disabled = true;
+            btnText.textContent = "Processing...";
+            loader.classList.remove('hidden');
+            statusMessage.className = 'status-message';
+            statusMessage.textContent = '';
+
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url,
+                        format_id,
+                        start_time: start_time || null,
+                        end_time: end_time || null
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Download failed');
+                }
+
+                const data = await response.json();
+
+                // Trigger actual download in browser
+                const link = document.createElement('a');
+                link.href = data.download_url;
+                link.download = ''; // Browser will handle filename
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                showMessage("Download started!", "success");
+
+            } catch (err) {
+                showMessage(err.message, "error");
+            } finally {
+                downloadBtn.disabled = false;
+                btnText.textContent = "Download Video";
+                loader.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+
+</html>

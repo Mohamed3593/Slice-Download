@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <filter id="glow">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#7c3aed"></feDropShadow>
+    </filter>
+  </defs>
+
+  <g filter="url(#glow)">
+    <!-- arrow shaft -->
+    <rect x="28" y="10" width="8" height="26" rx="4" fill="#7c3aed"></rect>
+    
+    <!-- arrow head -->
+    <path d="M16 34 L32 52 L48 34 Z" fill="#7c3aed"></path>
+  </g>
+</svg>
