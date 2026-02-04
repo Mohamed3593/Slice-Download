@@ -19,9 +19,9 @@ COPY . .
 # 5. Create downloads directory
 RUN mkdir -p downloads
 
-# 6. Expose the port (Render uses 10000 by default usually, or we use $PORT)
-ENV PORT=10000
-EXPOSE 10000
+# 6. Expose the port (Hugging Face uses 7860)
+ENV PORT=7860
+EXPOSE 7860
 
 # 7. Start the application using Gunicorn (Production Server)
 CMD gunicorn -w 2 -b 0.0.0.0:$PORT app:app
